@@ -6,6 +6,10 @@ from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 
 def run_vggt(image_dir, output_dir):
+    image_dir = os.path.expanduser(image_dir)
+    output_dir = os.path.expanduser(output_dir)
+    
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     print("device:", device, "dtype:", dtype)
