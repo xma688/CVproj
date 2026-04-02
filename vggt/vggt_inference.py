@@ -42,6 +42,6 @@ def run_vggt(image_dir, output_dir):
 
 if __name__ == "__main__":
     run_vggt(
-        "D:/CV proj/3201Project/data/DL3DV-2/rgb",
-        "D:/CV proj/3201Project/results/vggt_output"
+        "~/my_storage_500G/CVproj/DL3DV-2/rgb",
+        "~/my_storage_500G/CVproj/results/vggt_output"
     )
