@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+outputs/
+checkpoints/
+*.pth\
+*.ckpt
+*.tar
+*.tar.gz
+*.zip
+Project4.tar
