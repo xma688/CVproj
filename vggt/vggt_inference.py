@@ -24,11 +24,8 @@ def run_vggt(image_dir, output_dir, chunk_size=4):
     dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     print("device:", device, "dtype:", dtype)
 
-    # 加载模型，并设置内部的 frames_chunk_size（进一步降低内部显存峰值）
-    model = VGGT.from_pretrained(
-        "facebook/VGGT-1B",
-        frames_chunk_size=chunk_size   # 让模型内部也分块处理
-    ).to(device)
+    # 加载模型（不传递 frames_chunk_size，因为该参数不存在）
+    model = VGGT.from_pretrained("facebook/VGGT-1B").to(device)
     model.eval()
 
     # 获取所有图像路径（支持 jpg 和 png）
@@ -81,7 +78,7 @@ def run_vggt(image_dir, output_dir, chunk_size=4):
     if final_world_points is not None:
         np.save(os.path.join(output_dir, "world_points.npy"), final_world_points)
 
-    # 保存元数据（注意：不再保存 images.npy 以节省磁盘空间，如需保存可自行添加）
+    # 保存元数据（不再保存 images.npy 以节省磁盘空间）
     with open(os.path.join(output_dir, "vggt_meta.json"), "w", encoding="utf-8") as f:
         json.dump({
             "n_images": len(image_files),
