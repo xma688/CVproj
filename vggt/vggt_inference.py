@@ -5,106 +5,99 @@ import numpy as np
 import torch
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
+from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
-def run_vggt(image_dir, output_dir, chunk_size=4):
+def run_vggt(image_dir, output_dir, chunk_size=4, conf_threshold=0.5):
     """
-    分块运行 VGGT 推理，避免显存溢出。
+    分块运行 VGGT 推理，输出相机位姿和初始点云。
 
     Args:
         image_dir: 图像文件夹路径（支持 ~ 展开）
         output_dir: 输出文件夹路径（支持 ~ 展开）
-        chunk_size: 每次处理的图像数量，显存不足时减小该值（例如 2 或 1）
+        chunk_size: 每次处理的图像数量，显存不足时减小该值
+        conf_threshold: 点云置信度阈值，用于过滤低质量点
     """
-    # 展开路径中的 ~
     image_dir = os.path.expanduser(image_dir)
     output_dir = os.path.expanduser(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
 
-    # 设备与精度设置
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if (device == "cuda" and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     print("device:", device, "dtype:", dtype)
 
-    # 加载模型（不传递 frames_chunk_size）
     model = VGGT.from_pretrained("facebook/VGGT-1B").to(device)
     model.eval()
 
-    # 获取所有图像路径
     image_files = sorted(Path(image_dir).glob("*.jpg")) + sorted(Path(image_dir).glob("*.png"))
     if len(image_files) == 0:
         raise RuntimeError(f"No images found in {image_dir}")
-    print(f"Total images found: {len(image_files)}")
+    print(f"Total images: {len(image_files)}")
 
-    # 准备存储所有块的结果
-    all_intrinsics = []
-    all_extrinsics = []
+    # 用于合并所有块的输出
+    all_pose_enc = []
     all_world_points = []
+    all_world_points_conf = []
+    all_extrinsics = []
+    all_intrinsics = []
 
-    # 分块处理
     for start_idx in range(0, len(image_files), chunk_size):
         end_idx = min(start_idx + chunk_size, len(image_files))
         chunk_paths = image_files[start_idx:end_idx]
         print(f"Processing chunk {start_idx//chunk_size + 1}/{(len(image_files)-1)//chunk_size + 1} "
               f"(images {start_idx+1} to {end_idx})")
 
-        # 加载并预处理当前块图像
         images = load_and_preprocess_images([str(p) for p in chunk_paths]).to(device)
-        images = images.unsqueeze(0)  # 增加 batch 维度
+        images = images.unsqueeze(0)  # (1, N, 3, H, W)
+        _, _, H, W = images.shape[-4:]
 
         with torch.no_grad(), torch.amp.autocast(device_type=device, dtype=dtype):
             preds = model(images)
 
-        # 调试：打印模型输出的所有键（第一次执行时输出，后续不再打印）
-        if start_idx == 0:
-            print("Model output keys:", preds.keys())
+        # 提取 pose_enc 并转换为相机内外参
+        pose_enc = preds["pose_enc"]
+        extrinsic, intrinsic = pose_encoding_to_extri_intri(pose_enc, (H, W))
 
-        # 兼容不同版本的键名
-        # 寻找内参矩阵的键
-        intrinsics_key = None
-        for possible_key in ['intrinsics', 'intrinsic', 'intrinsics_matrix', 'K']:
-            if possible_key in preds:
-                intrinsics_key = possible_key
-                break
-        if intrinsics_key is None:
-            raise KeyError(f"No intrinsics key found. Available keys: {list(preds.keys())}")
+        # 收集数据
+        all_pose_enc.append(pose_enc.cpu().numpy())
+        all_extrinsics.append(extrinsic.cpu().numpy())
+        all_intrinsics.append(intrinsic.cpu().numpy())
+        all_world_points.append(preds["world_points"].cpu().numpy())
+        all_world_points_conf.append(preds["world_points_conf"].cpu().numpy())
 
-        # 寻找外参矩阵的键
-        extrinsics_key = None
-        for possible_key in ['extrinsics', 'extrinsic', 'extrinsics_matrix', 'Rt', 'pose']:
-            if possible_key in preds:
-                extrinsics_key = possible_key
-                break
-        if extrinsics_key is None:
-            raise KeyError(f"No extrinsics key found. Available keys: {list(preds.keys())}")
-
-        # 寻找世界点云（可选）
-        points_key = None
-        for possible_key in ['world_points', 'points', 'point_cloud', 'pts3d']:
-            if possible_key in preds:
-                points_key = possible_key
-                break
-
-        # 收集结果
-        all_intrinsics.append(preds[intrinsics_key].cpu().numpy())
-        all_extrinsics.append(preds[extrinsics_key].cpu().numpy())
-        if points_key is not None:
-            all_world_points.append(preds[points_key].cpu().numpy())
-
-        # 清理显存
         del images, preds
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # 合并所有块的结果
-    final_intrinsics = np.concatenate(all_intrinsics, axis=1)
+    # 沿序列维度合并所有块
+    final_pose_enc = np.concatenate(all_pose_enc, axis=1)
     final_extrinsics = np.concatenate(all_extrinsics, axis=1)
-    final_world_points = np.concatenate(all_world_points, axis=1) if all_world_points else None
+    final_intrinsics = np.concatenate(all_intrinsics, axis=1)
+    final_world_points = np.concatenate(all_world_points, axis=1)
+    final_world_points_conf = np.concatenate(all_world_points_conf, axis=1)
 
-    # 保存结果
-    os.makedirs(output_dir, exist_ok=True)
-    np.save(os.path.join(output_dir, "intrinsics.npy"), final_intrinsics)
+    # 置信度过滤并保存点云为 PLY
+    points = final_world_points[0]  # (N, H, W, 3)
+    conf = final_world_points_conf[0]  # (N, H, W)
+    mask = conf > conf_threshold
+    filtered_points = points[mask]  # (M, 3)
+
+    try:
+        from plyfile import PlyData, PlyElement
+        vertex = np.array([tuple(p) for p in filtered_points], 
+                          dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+        ply = PlyData([PlyElement.describe(vertex, 'vertex')])
+        ply.write(os.path.join(output_dir, "points.ply"))
+        print(f"Saved PLY with {len(filtered_points)} points (threshold={conf_threshold})")
+    except ImportError:
+        print("plyfile not installed, skipping PLY export")
+        np.save(os.path.join(output_dir, "points_filtered.npy"), filtered_points)
+
+    # 保存完整输出
+    np.save(os.path.join(output_dir, "pose_enc.npy"), final_pose_enc)
     np.save(os.path.join(output_dir, "extrinsics.npy"), final_extrinsics)
-    if final_world_points is not None:
-        np.save(os.path.join(output_dir, "world_points.npy"), final_world_points)
+    np.save(os.path.join(output_dir, "intrinsics.npy"), final_intrinsics)
+    np.save(os.path.join(output_dir, "world_points.npy"), final_world_points)
+    np.save(os.path.join(output_dir, "world_points_conf.npy"), final_world_points_conf)
 
     # 保存元数据
     with open(os.path.join(output_dir, "vggt_meta.json"), "w", encoding="utf-8") as f:
@@ -113,8 +106,12 @@ def run_vggt(image_dir, output_dir, chunk_size=4):
             "image_paths": [str(p) for p in image_files],
             "chunk_size": chunk_size,
             "device": device,
-            "torch": torch.__version__
-        }, f, indent=2, ensure_ascii=False)
+            "torch": torch.__version__,
+            "conf_threshold": conf_threshold,
+            "pose_enc_shape": list(final_pose_enc.shape),
+            "extrinsics_shape": list(final_extrinsics.shape),
+            "intrinsics_shape": list(final_intrinsics.shape),
+        }, f, indent=2)
 
     print(f"Done! Results saved to {output_dir}")
 
@@ -122,5 +119,6 @@ if __name__ == "__main__":
     run_vggt(
         "~/my_storage_500G/CVproj/data/DL3DV-2/rgb",
         "~/my_storage_500G/CVproj/results/vggt_output",
-        chunk_size=4   # 根据显存调整
+        chunk_size=4,
+        conf_threshold=0.5
     )
