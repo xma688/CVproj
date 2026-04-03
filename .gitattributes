@@ -1,2 +1,3 @@
 results/vggt_output/world_points_conf.npy filter=lfs diff=lfs merge=lfs -text
 results/vggt_output/world_points.npy filter=lfs diff=lfs merge=lfs -text
+results/vggt_output/points.ply filter=lfs diff=lfs merge=lfs -text
