@@ -117,8 +117,8 @@ def run_vggt(image_dir, output_dir, chunk_size=4, conf_threshold=0.5):
 
 if __name__ == "__main__":
     run_vggt(
-        "~/my_storage_500G/CVproj/data/405841/FRONT/rgb",
-        "~/my_storage_500G/CVproj/results/vggt2",
+        "~/my_storage_500G/CVproj/data/Re10k-1/images",
+        "~/my_storage_500G/CVproj/results/vggt3",
         chunk_size=4,
         conf_threshold=0.5
     )
