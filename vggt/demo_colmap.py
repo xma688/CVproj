@@ -11,7 +11,8 @@ import os
 import copy
 import torch
 import torch.nn.functional as F
-
+from safetensors.torch import load_file
+import os
 # Configure CUDA settings
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
@@ -112,7 +113,8 @@ def demo_fn(args):
     # Run VGGT for camera and depth estimation
     model = VGGT()
     _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-    model.load_state_dict(torch.hub.load_state_dict_from_url(_URL))
+    safetensors_path = "/home/xma688/my_storage_500G/huggingface_cache/hub/models--facebook--VGGT-1B/snapshots/860abec7937da0a4c03c41d3c269c366e82abdf9/model.safetensors"
+    model.load_state_dict(torch.load(safetensors_path))
     model.eval()
     model = model.to(device)
     print(f"Model loaded")
