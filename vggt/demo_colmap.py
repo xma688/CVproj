@@ -114,7 +114,9 @@ def demo_fn(args):
     model = VGGT()
     _URL = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
     safetensors_path = "/home/xma688/my_storage_500G/huggingface_cache/hub/models--facebook--VGGT-1B/snapshots/860abec7937da0a4c03c41d3c269c366e82abdf9/model.safetensors"
-    model.load_state_dict(torch.load(safetensors_path))
+    from safetensors.torch import load_file
+    state_dict = load_file(safetensors_path)
+    model.load_state_dict(state_dict)
     model.eval()
     model = model.to(device)
     print(f"Model loaded")
