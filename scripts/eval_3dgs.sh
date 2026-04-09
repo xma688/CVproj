@@ -3,6 +3,8 @@
 # bash scripts/eval_3dgs.sh DL3DV-2 PlanA
 # bash scripts/eval_3dgs.sh Re10k-1 PlanB
 # bash scripts/eval_3dgs.sh 405841_FRONT PlanA
+# bash scripts/eval_3dgs.sh 405841/FRONT PlanA
+# bash scripts/eval_3dgs.sh 405841 PlanA
 
 set -euo pipefail
 
@@ -10,18 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO="$ROOT/gaussian-splatting"
 
-SCENE="${1:-DL3DV-2}"
+SCENE_IN="${1:-DL3DV-2}"
 PLAN="${2:-PlanA}"
-
-case "$SCENE" in
-  DL3DV-2|Re10k-1|405841_FRONT)
-    ;;
-  *)
-    echo "Unsupported scene: $SCENE"
-    echo "Supported scenes: DL3DV-2 | Re10k-1 | 405841_FRONT"
-    exit 1
-    ;;
-esac
 
 case "$PLAN" in
   PlanA|PlanB)
@@ -33,7 +25,31 @@ case "$PLAN" in
     ;;
 esac
 
-OUT_DIR="$ROOT/outputs/3dgs/$PLAN/$SCENE"
+# 规范化 scene 名称
+# SCENE_TAG: 对应 outputs/3dgs/$PLAN/$SCENE_TAG
+case "$SCENE_IN" in
+  DL3DV-2)
+    SCENE_TAG="DL3DV-2"
+    ;;
+  Re10k-1)
+    SCENE_TAG="Re10k-1"
+    ;;
+  405841_FRONT|405841/FRONT|405841)
+    SCENE_TAG="405841_FRONT"
+    ;;
+  *)
+    echo "Unsupported scene: $SCENE_IN"
+    echo "Supported scenes:"
+    echo "  DL3DV-2"
+    echo "  Re10k-1"
+    echo "  405841_FRONT"
+    echo "  405841/FRONT"
+    echo "  405841"
+    exit 1
+    ;;
+esac
+
+OUT_DIR="$ROOT/outputs/3dgs/$PLAN/$SCENE_TAG"
 LOG_DIR="$OUT_DIR/logs"
 
 mkdir -p "$LOG_DIR"
@@ -56,9 +72,10 @@ python metrics.py \
 
 {
   echo "========================================"
-  echo "SCENE    : $SCENE"
-  echo "PLAN     : $PLAN"
-  echo "MODEL    : $OUT_DIR"
-  echo "NOTE     : render.py ran with --skip_train, so only test split was rendered."
+  echo "SCENE_IN       : $SCENE_IN"
+  echo "SCENE_TAG      : $SCENE_TAG"
+  echo "PLAN           : $PLAN"
+  echo "MODEL          : $OUT_DIR"
+  echo "NOTE           : render.py ran with --skip_train, so only test split was rendered."
   echo "========================================"
 } | tee "$LOG_DIR/eval_meta.txt"
